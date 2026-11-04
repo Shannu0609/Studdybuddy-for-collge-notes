@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Study Buddy</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:#f4f6fb;color:#1c2333}
+.card{background:#fff;border-radius:14px;box-shadow:0 2px 12px #0001;padding:24px}
+.center{max-width:420px;margin:8vh auto}h1,h2{margin:0 0 12px}
+input,button{font:inherit;padding:10px 12px;border-radius:8px;border:1px solid #cdd3e0;width:100%;margin:6px 0}
+button{background:#3b5bdb;color:#fff;border:0;cursor:pointer;width:auto}button.ghost{background:#e9edf8;color:#1c2333}
+.hidden{display:none}header{display:flex;justify-content:space-between;align-items:center;padding:14px 24px;background:#fff;box-shadow:0 1px 6px #0001}
+main{display:grid;grid-template-columns:300px 1fr;gap:16px;max-width:1100px;margin:16px auto;padding:0 16px}
+@media(max-width:800px){main{grid-template-columns:1fr}}
+#chat{height:55vh;overflow:auto;display:flex;flex-direction:column;gap:10px;margin-bottom:10px}
+.msg{padding:10px 14px;border-radius:12px;max-width:85%;white-space:pre-wrap}
+.u{background:#3b5bdb;color:#fff;align-self:flex-end}.b{background:#eef1f9}.src{font-size:12px;opacity:.7;margin-top:6px}
+.note{display:flex;justify-content:space-between;gap:8px;font-size:14px;padding:6px 0;border-bottom:1px solid #eee}
+.note a{color:#c92a2a;cursor:pointer}.row{display:flex;gap:8px}.row input{margin:0}
+</style></head><body>
+
+<div id="login" class="center card hidden"><h1>📚 Study Buddy</h1>
+<p>Sign in or sign up with Google to chat with your college notes.</p><div id="gbtn"></div></div>
+
+<div id="register" class="center card hidden"><h2>Complete your registration</h2>
+<input id="r_name" placeholder="Full name"><input id="r_college" placeholder="College">
+<input id="r_class" placeholder="Class (e.g. B.Tech CSE - 3rd year)">
+<label>Date of birth</label><input id="r_dob" type="date">
+<button onclick="doRegister()">Register &amp; continue</button><p id="r_err" style="color:#c92a2a"></p></div>
+
+<div id="app" class="hidden">
+<header><b>📚 Study Buddy</b><span><span id="who"></span> <button class="ghost" onclick="logout()">Logout</button></span></header>
+<main>
+ <div class="card"><h2>My notes</h2>
+  <input type="file" id="file" accept=".pdf,.txt,.md"><button onclick="upload()">Upload</button>
+  <p id="up_status" style="font-size:13px"></p><div id="notes"></div></div>
+ <div class="card"><h2>Ask your notes</h2><div id="chat"></div>
+  <div class="row"><input id="q" placeholder="Ask any question from your notes…" onkeydown="if(event.key==='Enter')ask()">
+  <button onclick="ask()">Ask</button></div></div>
+</main></div>
+
+<script>
+let token=localStorage.token||"", signupToken="";
+const $=id=>document.getElementById(id), show=v=>["login","register","app"].forEach(x=>$(x).classList.toggle("hidden",x!==v));
+async function api(path,opt={}){opt.headers={...(opt.headers||{}),Authorization:"Bearer "+token};
+  if(opt.json){opt.body=JSON.stringify(opt.json);opt.headers["Content-Type"]="application/json";opt.method="POST"}
+  const r=await fetch("/api"+path,opt);if(r.status===401&&token){logout();throw 0}
+  const d=await r.json();if(!r.ok)throw new Error(d.detail||"Error");return d}
+function logout(){localStorage.removeItem("token");token="";show("login")}
+async function init(){
+  const {client_id}=await (await fetch("/api/config")).json();
+  const wait=setInterval(()=>{if(window.google){clearInterval(wait);
+    google.accounts.id.initialize({client_id,callback:onGoogle});
+    google.accounts.id.renderButton($("gbtn"),{theme:"outline",size:"large",text:"continue_with"})}},100);
+  if(token){try{const u=await api("/me");enter(u);return}catch(e){}}
+  show("login")}
+async function onGoogle(res){
+  const d=await api("/auth/google",{json:{credential:res.credential}});
+  if(d.registered){token=localStorage.token=d.token;enter(d.user)}
+  else{signupToken=d.signup_token;$("r_name").value=d.name;show("register")}}
+async function doRegister(){
+  try{const d=await api("/auth/register",{json:{signup_token:signupToken,name:$("r_name").value,
+    college:$("r_college").value,class_name:$("r_class").value,dob:$("r_dob").value}});
+    token=localStorage.token=d.token;enter(d.user)}catch(e){$("r_err").textContent=e.message}}
+function enter(u){$("who").textContent=u.name+" · "+u.college;show("app");loadNotes();
+  $("chat").innerHTML="";add("b","Hi "+u.name.split(" ")[0]+"! Upload your notes, then ask me anything.")}
+async function loadNotes(){const n=await api("/notes");
+  $("notes").innerHTML=n.map(x=>`<div class="note"><span>📄 ${x.filename}</span><a onclick="del(${x.id})">delete</a></div>`).join("")||"<small>No notes yet.</small>"}
+async function upload(){const f=$("file").files[0];if(!f)return;const fd=new FormData();fd.append("file",f);
+  $("up_status").textContent="Uploading & indexing…";
+  try{const d=await api("/notes",{method:"POST",body:fd});$("up_status").textContent=`Indexed ${d.chunks} chunks ✔`;$("file").value="";loadNotes()}
+  catch(e){$("up_status").textContent=e.message}}
+async function del(id){await api("/notes/"+id,{method:"DELETE"});loadNotes()}
+function add(c,t,src){const d=document.createElement("div");d.className="msg "+c;d.textContent=t;
+  if(src&&src.length){const s=document.createElement("div");s.className="src";
+    s.textContent="Sources: "+src.map(x=>`[${x.n}] ${x.file} ${x.page}`).join(" · ");d.appendChild(s)}
+  $("chat").appendChild(d);$("chat").scrollTop=1e9;return d}
+async function ask(){const q=$("q").value.trim();if(!q)return;$("q").value="";add("u",q);const w=add("b","Thinking…");
+  try{const d=await api("/ask",{json:{question:q}});w.remove();add("b",d.answer,d.sources)}catch(e){w.textContent=e.message}}
+init();
+</script></body></html>

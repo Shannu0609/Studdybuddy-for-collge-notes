@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pyjwt
+google-auth
+requests
+pypdf
+chromadb
+anthropic
+python-dotenv
